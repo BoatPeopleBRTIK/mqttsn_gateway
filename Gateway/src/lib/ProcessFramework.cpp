@@ -174,6 +174,7 @@ Process::Process(){
 	_argv = 0;
 	_rb = new RingBuffer();
 	_rbsem = new Semaphore(TOMYFRAME_RB_SEMAPHOR_NAME, 0);
+	memset(_rbdata, 0, PROCESS_LOG_BUFFER_SIZE + 1);
 }
 
 Process::~Process(){
@@ -253,6 +254,7 @@ int Process::getParam(const char* parameter, char* value){
 
 
 void Process::putLog(const char* format, ...){
+#if defined PUT_LOG
 	_mt.lock();
 	va_list arg;
 	va_start(arg, format);
@@ -263,6 +265,7 @@ void Process::putLog(const char* format, ...){
 		_rbsem->post();
 	}
 	_mt.unlock();
+#endif
 }
 
 const char* Process::getLog(){
@@ -344,10 +347,10 @@ int MultiTaskProcess::getParam(const char* parameter, char* value){
 /*=====================================
         Class Thread
  =====================================*/
-Thread::Thread(){
+Thread::Thread() {
+	_initializePtr = NULL;
 	_stopProcessEvent = theMultiTask->getStopProcessEvent();
 	_threadID = 0;
-	_stopProcessEvent = 0;
 }
 
 Thread::~Thread(){
@@ -480,7 +483,9 @@ void Mutex::unlock(void){
  =====================================*/
 
 Semaphore::Semaphore(){
-	Semaphore(0);
+	sem_init(&_sem, 0, 0);
+	_name = 0;
+	_psem = 0;
 }
 
 Semaphore::Semaphore(unsigned int val){
@@ -495,7 +500,7 @@ Semaphore::Semaphore(const char* name,unsigned int val){
 		//perror("Semaphore");
 		THROW_EXCEPTION(ExFatal, ERRNO_SYS_01, "Can't create a Semaphore.");
 	}
-	_name = (char*)mqcalloc(strlen(name + 1));
+	_name = (char*)mqcalloc(strlen(name) + 1);
 	strcpy(_name, name);
 }
 

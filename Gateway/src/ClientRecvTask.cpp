@@ -50,6 +50,7 @@
 extern char* currentDateTime();
 
 ClientRecvTask::ClientRecvTask(GatewayResourcesProvider* res){
+	_network = NULL;
 	_res = res;
 	_res->attach(this);
 }
@@ -59,14 +60,12 @@ ClientRecvTask::~ClientRecvTask(){
 }
 
 
-
 void ClientRecvTask::run(){
 
 #ifdef NETWORK_XBEE
 	XBeeConfig config;
 	char param[TOMYFRAME_PARAM_MAX];
 	bool secure = false;   // TCP
-
 
 	config.baudrate = B57600;
 	config.flag = O_RDONLY;
@@ -85,8 +84,17 @@ void ClientRecvTask::run(){
 #endif
 
 #ifdef NETWORK_UDP
+	D_NWSTACK("NETWORK_UDP\n");
 	UdpConfig config;
 	char param[TOMYFRAME_PARAM_MAX];
+
+	bool secure = false;
+	if(_res->getParam("SecureConnection",param) == 0){
+		if(!strcasecmp(param, "YES")){
+			secure = true;  // TLS
+		}
+	}
+	_res->getClientList()->authorize(FILE_NAME_CLIENT_LIST, secure);
 
 	if(_res->getParam("BroadcastIP", param) == 0){
 		config.ipAddress = strdup(param);
@@ -111,9 +119,8 @@ void ClientRecvTask::run(){
 	_network = _res->getNetwork();
 #endif
 
-
 	if(_network->initialize(config) < 0){
-		THROW_EXCEPTION(ExFatal, ERRNO_APL_01, "can't open the client port.");  // ABORT
+		THROW_EXCEPTION(ExFatal, ERRNO_APL_01, "ClientRecvTask initialize exception.");  // ABORT
 	}
 
 	while(true){
@@ -133,8 +140,12 @@ void ClientRecvTask::run(){
 					ClientNode* node = _res->getClientList()->createNode(secure, resp->getClientAddress64(),0);
 				#endif
 				#ifdef NETWORK_UDP
+					MQTTSnConnect* connMsg = new MQTTSnConnect();
+					connMsg->absorb(resp);
 					ClientNode* node = _res->getClientList()->createNode(secure, resp->getClientAddress64(),
-																	resp->getClientAddress16());
+							resp->getClientAddress16(), connMsg->getClientId());
+					delete connMsg;
+
 				#endif
 				#ifdef NETWORK_XXXXX
 					ClientNode* node = _res->getClientList()->createNode(secure, resp->getClientAddress64(),
@@ -143,6 +154,7 @@ void ClientRecvTask::run(){
 
 					if(!node){
 						delete ev;
+						delete resp;
 						LOGWRITE("Client is not authorized.\n");
 						continue;
 					}
@@ -164,6 +176,7 @@ void ClientRecvTask::run(){
 					eventSetFlg = false;
 				}
 			}else{
+				D_CLIENT_INFO("ClientRecvTask node_id =  %s\n", clnode->getNodeId()->c_str());
 				if (resp->getMsgType() == MQTTSN_TYPE_CONNECT){
 					MQTTSnConnect* msg = new MQTTSnConnect();
 					msg->absorb(resp);
@@ -261,8 +274,3 @@ void ClientRecvTask::run(){
 		delete resp;
 	}
 }
-
-
-
-
-

@@ -60,6 +60,8 @@ GatewayControlTask::GatewayControlTask(GatewayResourcesProvider* res){
 	_loginId = "";
 	_password = "";
 	_secure = false;
+	_gatewayId = 0;
+	memset(_printBuf, 0, sizeof(_printBuf));
 }
 
 GatewayControlTask::~GatewayControlTask(){
@@ -113,6 +115,9 @@ void GatewayControlTask::run(){
 	while(true){
 
 		ev = _eventQue->timedwait(TIMEOUT_PERIOD);
+		if (!ev) {
+			continue;
+		}
 
 		/*------     Check Client is Lost    ---------*/
 		if(ev->getEventType() == EtTimeout){
@@ -165,6 +170,9 @@ void GatewayControlTask::run(){
 		/*------   Check  SEARCHGW & send GWINFO      ---------*/
 		else if(ev->getEventType() == EtBroadcast){
 			MQTTSnMessage* msg = ev->getMqttSnMessage();
+			if (!msg) {
+				goto error;
+			}
 			LOGWRITE(YELLOW_FORMAT2, currentDateTime(), "SERCHGW", LEFTARROW, CLIENT, msgPrint(msg));
 
 			if(msg->getType() == MQTTSN_TYPE_SEARCHGW){
@@ -176,17 +184,24 @@ void GatewayControlTask::run(){
 					LOGWRITE(YELLOW_FORMAT1, currentDateTime(), "GWINFO", RIGHTARROW, CLIENT, msgPrint(gwinfo));
 
 					_res->getClientSendQue()->post(ev1);
+				} else {
+					printf("!!!!!! Client count is %d but the MAX is %d when handle MQTTSN_TYPE_SEARCHGW !!!!!!\n",
+							_res->getClientList()->getClientCount(), MAX_CLIENT_NODES);
 				}
 			}
-
 		}
-		
+
 		/*------   Message form Clients      ---------*/
 		else if(ev->getEventType() == EtClientRecv){
 
 			ClientNode* clnode = ev->getClientNode();
+			if (!clnode) {
+				goto error;
+			}
 			MQTTSnMessage* msg = clnode->getClientRecvMessage();
-
+			if (!msg) {
+				goto error;
+			}
 			clnode->updateStatus(msg);
 
 			if(msg->getType() == MQTTSN_TYPE_PUBLISH){
@@ -218,14 +233,18 @@ void GatewayControlTask::run(){
 			}else{
 				LOGWRITE("%s   Irregular ClientRecvMessage\n", currentDateTime());
 			}
-
 		}
 		/*------   Message form Broker      ---------*/
 		else if(ev->getEventType() == EtBrokerRecv){
 
 			ClientNode* clnode = ev->getClientNode();
+			if (!clnode) {
+				goto error;
+			}
 			MQTTMessage* msg = clnode->getBrokerRecvMessage();
-			
+			if (!msg) {
+				goto error;
+			}
 			if(msg->getType() == MQTT_TYPE_PUBACK){
 				handlePuback(ev, clnode, msg);
 			}else if(msg->getType() == MQTT_TYPE_PINGRESP){
@@ -247,10 +266,11 @@ void GatewayControlTask::run(){
 			}else if(msg->getType() == MQTT_TYPE_PUBCOMP){
 				handlePubComp(ev, clnode, msg);
 			}else{
-				LOGWRITE("%s   Irregular BrokerRecvMessage\n", currentDateTime());
+				D_NWSTACK("!!!!!!!!!!!!!!! %s   Irregular BrokerRecvMessage\n", currentDateTime());
 			}
 		}
 
+error:
 		delete ev;
 	}
 }
@@ -272,7 +292,7 @@ void GatewayControlTask::handleSnPublish(Event* ev, ClientNode* clnode, MQTTSnMe
 
 	Topic* tp = clnode->getTopics()->getTopic(sPublish->getTopicId());
 
-	if(tp || ((sPublish->getFlags() && MQTTSN_TOPIC_TYPE) == MQTTSN_TOPIC_TYPE_SHORT)){
+	if(tp || ((sPublish->getFlags() & MQTTSN_TOPIC_TYPE) == MQTTSN_TOPIC_TYPE_SHORT)){
 		if(tp){
 			mqMsg->setTopic(tp->getTopicName());
 		}else{
@@ -458,14 +478,12 @@ void GatewayControlTask::handleSnUnsubscribe(Event* ev, ClientNode* clnode, MQTT
 
 	if(topicIdType != MQTTSN_FLAG_TOPICID_TYPE_RESV){
 
-		if(topicIdType == MQTTSN_FLAG_TOPICID_TYPE_SHORT){
+		if(topicIdType == MQTTSN_FLAG_TOPICID_TYPE_SHORT
+				|| MQTTSN_FLAG_TOPICID_TYPE_NORMAL == topicIdType){
 			unsubscribe->setTopicName(sUnsubscribe->getTopicName()); // TopicName
 
-		}else if(clnode->getTopics()->getTopic(sUnsubscribe->getTopicId())){
-
+		} else if (clnode->getTopics()->getTopic(sUnsubscribe->getTopicId())){
 			if(topicIdType == MQTTSN_FLAG_TOPICID_TYPE_PREDEFINED) goto uslbl1;
-
-			unsubscribe->setTopicName(sUnsubscribe->getTopicName());
 		}
 
 		clnode->setBrokerSendMessage(unsubscribe);
@@ -779,7 +797,7 @@ void GatewayControlTask::handleSnRegister(Event* ev, ClientNode* clnode, MQTTSnM
 
 	delete snMsg;
 }
-	
+
 
 /*=======================================================
                      Downstream
@@ -1053,18 +1071,19 @@ void GatewayControlTask::handlePublish(Event* ev, ClientNode* clnode, MQTTMessag
 }
 
 char*  GatewayControlTask::msgPrint(MQTTSnMessage* msg){
-
-	char* buf = _printBuf;
+	memset(_printBuf, 0, 512);
+	/*char* buf = _printBuf;
 	for(int i = 0; i < msg->getBodyLength(); i++){
 		sprintf(buf," %02X", *(msg->getBodyPtr() + i));
 		buf += 3;
 	}
-	*buf = 0;
+	*buf = 0;*/
 	return _printBuf;
 }
 
 char*  GatewayControlTask::msgPrint(MQTTMessage* msg){
-	uint8_t sbuf[512];
+	memset(_printBuf, 0, 512);
+	/*uint8_t sbuf[512];
 	char* buf = _printBuf;
 	msg->serialize(sbuf);
 
@@ -1072,7 +1091,7 @@ char*  GatewayControlTask::msgPrint(MQTTMessage* msg){
 		sprintf(buf, " %02X", *( sbuf + i));
 		buf += 3;
 	}
-	*buf = 0;
+	*buf = 0;*/
 	return _printBuf;
 }
 

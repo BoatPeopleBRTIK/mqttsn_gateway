@@ -86,7 +86,7 @@ bool Network::getResponse(NWResponse* response){
 
 	uint8_t* buf = response->getPayloadPtr();
 	uint16_t recvLen = UDPPort::recv(buf, MQTTSN_MAX_FRAME_SIZE, &ipAddress, &portNo);
-	if(recvLen < 0){
+	if(recvLen <= 0){
 		return false;
 	}else{
 		if(buf[0] == 0x01){
@@ -144,12 +144,19 @@ int UDPPort::initialize(){
 	return initialize(_config);
 }
 
-int UDPPort::initialize(UdpConfig config){
-	char loopch = 0;
+int UDPPort::initialize(UdpConfig config) {
+	_udpmutex.lock();
+	int loopch = 0;
 	const int reuse = 1;
+	int rc = 0;
 
-	if(config.uPortNo == 0 || config.gPortNo == 0){
-		return -1;
+	struct ip_mreq mreq;
+
+	D_NWSTACK("UDPPort::initialize uPortNo %d gPortNo %d ip %s\n", config.uPortNo, config.gPortNo, config.ipAddress);
+	if (config.uPortNo == 0 || config.gPortNo == 0) {
+		D_NWSTACK("config port error\n");
+		rc = -1;
+		goto onInitEnd;
 	}
 	_gPortNo = htons(config.gPortNo);
 	_gIpAddr = inet_addr(config.ipAddress);
@@ -158,83 +165,112 @@ int UDPPort::initialize(UdpConfig config){
 	_config.uPortNo = config.uPortNo;
 	_config.ipAddress = config.ipAddress;
 
+	memset(&mreq, 0, sizeof(struct ip_mreq));
+	mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+	mreq.imr_multiaddr.s_addr = inet_addr(config.ipAddress);
+
 	/*------ Create unicast socket --------*/
-	_sockfdUnicast = socket(AF_INET, SOCK_DGRAM, 0);
-	if (_sockfdUnicast < 0){
-		return -1;
-	}
+	if (_sockfdUnicast <= 0) {
+		_sockfdUnicast = socket(AF_INET, SOCK_DGRAM, 0);
+		D_NWSTACK("unicast sock %d\n", _sockfdUnicast);
+		if (_sockfdUnicast < 0) {
+			D_NWSTACK("new sock error %d\n", errno);
+			rc = -1;
+			goto onInitEnd;
+		}
 
-	setsockopt(_sockfdUnicast, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+		setsockopt(_sockfdUnicast, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
-	sockaddr_in addru;
-	addru.sin_family = AF_INET;
-	addru.sin_port = htons(config.uPortNo);
-	addru.sin_addr.s_addr = INADDR_ANY;
+		sockaddr_in addru;
+		memset(&addru, 0, sizeof(sockaddr_in));
+		addru.sin_family = AF_INET;
+		addru.sin_port = htons(config.uPortNo);
+		addru.sin_addr.s_addr = INADDR_ANY;
 
-	if( ::bind ( _sockfdUnicast, (sockaddr*)&addru,  sizeof(addru)) <0){
-		return -1;
-	}
+		if (::bind(_sockfdUnicast, (struct sockaddr *) &addru, sizeof(addru)) < 0) {
+			D_NWSTACK("sock bind error %d\n", errno);
+			close();
+			rc = -1;
+			goto onInitEnd;
+		}
 
-	if(setsockopt(_sockfdUnicast, IPPROTO_IP, IP_MULTICAST_LOOP,(char*)&loopch, sizeof(loopch)) <0 ){
-		D_NWSTACK("error IP_MULTICAST_LOOP in UDPPort::open\n");
-		close();
-		return -1;
+		if (setsockopt(_sockfdUnicast, IPPROTO_IP, IP_MULTICAST_LOOP, &loopch, sizeof(loopch)) < 0) {
+			D_NWSTACK("setsockopt error %d\n", errno);
+			close();
+			rc = -1;
+			goto onInitEnd;
+		}
+		if (setsockopt(_sockfdUnicast, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+			D_NWSTACK("setsockopt IP_ADD_MEMBERSHIP error %d\n", errno);
+			close();
+			rc = -1;
+			goto onInitEnd;
+		}
 	}
 
 	/*------ Create Multicast socket --------*/
-	_sockfdMulticast = socket(AF_INET, SOCK_DGRAM, 0);
-	if (_sockfdMulticast < 0){
-		close();
-		return -1;
+	if (_sockfdMulticast <= 0) {
+		_sockfdMulticast = socket(AF_INET, SOCK_DGRAM, 0);
+		D_NWSTACK("multicast sock %d\n", _sockfdMulticast);
+		if (_sockfdMulticast < 0) {
+			D_NWSTACK("new multicast sock error %d\n", errno);
+			close();
+			rc = -1;
+			goto onInitEnd;
+		}
+
+		setsockopt(_sockfdMulticast, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+		sockaddr_in addrm;
+		memset(&addrm, 0, sizeof(sockaddr_in));
+		addrm.sin_family = AF_INET;
+		addrm.sin_port = htons(config.gPortNo);
+		addrm.sin_addr.s_addr = INADDR_ANY;
+
+		if (::bind(_sockfdMulticast, (struct sockaddr *) &addrm, sizeof(addrm)) < 0) {
+			close();
+			D_NWSTACK("multicast sock bind error %d\n", errno);
+			rc = -1;
+			goto onInitEnd;
+		}
+
+		if (setsockopt(_sockfdMulticast, IPPROTO_IP, IP_MULTICAST_LOOP, &loopch, sizeof(loopch)) < 0) {
+			D_NWSTACK("multicast setsockopt IP_MULTICAST_LOOP error %d\n", errno);
+			close();
+			rc = -1;
+			goto onInitEnd;
+		}
+
+		if (setsockopt(_sockfdMulticast, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+			D_NWSTACK("multicast setsockopt IP_ADD_MEMBERSHIP error %d\n", errno);
+			close();
+			rc = -1;
+			goto onInitEnd;
+		}
 	}
 
-	setsockopt(_sockfdMulticast, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-
-	sockaddr_in addrm;
-	addrm.sin_family = AF_INET;
-	addrm.sin_port = htons(config.gPortNo);
-	addrm.sin_addr.s_addr = INADDR_ANY;
-
-	if( ::bind ( _sockfdMulticast, (sockaddr*)&addrm,  sizeof(addrm)) <0){
-		return -1;
-	}
-
-	if(setsockopt(_sockfdMulticast, IPPROTO_IP, IP_MULTICAST_LOOP,(char*)&loopch, sizeof(loopch)) <0 ){
-		D_NWSTACK("error IP_MULTICAST_LOOP in UDPPort::open\n");
-		close();
-		return -1;
-	}
-
-	struct ip_mreq mreq;
-	mreq.imr_interface.s_addr = INADDR_ANY;
-	mreq.imr_multiaddr.s_addr = inet_addr(config.ipAddress);
-
-	if( setsockopt(_sockfdMulticast, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq))< 0){
-		D_NWSTACK("error IP_ADD_MEMBERSHIP in UDPPort::open\n");
-		close();
-		return -1;
-	}
-
-	if( setsockopt(_sockfdUnicast, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq))< 0){
-		D_NWSTACK("error IP_ADD_MEMBERSHIP in UDPPort::open\n");
-		close();
-		return -1;
-	}
-	return 0;
+onInitEnd:
+	_udpmutex.unlock();
+	return rc;
 }
 
 
-int UDPPort::unicast(const uint8_t* buf, uint32_t length, uint32_t ipAddress, uint16_t port  ){
+int UDPPort::unicast(const uint8_t* buf, uint32_t length, uint32_t ipAddress, uint16_t port) {
 	sockaddr_in dest;
 	dest.sin_family = AF_INET;
 	dest.sin_port = port;
 	dest.sin_addr.s_addr = ipAddress;
 
-	int status = ::sendto( _sockfdUnicast, buf, length, 0, (const sockaddr*)&dest, sizeof(dest) );
-	if( status < 0){
+	int status = ::sendto(_sockfdUnicast, buf, length, 0, (const sockaddr*) &dest, sizeof(dest));
+	D_NWSTACK(">>>>>>>> UDPPort::unicast sendto %s:%d length = %d\n", inet_ntoa(dest.sin_addr), htons(port), status);
+	unsigned int i;
+	for (i = 0; i < length; i++) {
+		D_NWSTACK("%d ", buf[i]);
+	}
+	D_NWSTACK("\n");
+	if (status < 0) {
 		D_NWSTACK("errno == %d in UDPPort::sendto\n", errno);
 	}
-	D_NWSTACK("sendto %s:%u length = %d\n",inet_ntoa(dest.sin_addr), htons(port), status);
 	return status;
 }
 
@@ -266,20 +302,27 @@ int UDPPort::recv(uint8_t* buf, uint16_t len, uint32_t* ipAddressPtr, uint16_t* 
 	return 0;
 }
 
-int UDPPort::recvfrom (int sockfd, uint8_t* buf, uint16_t len, uint8_t flags, uint32_t* ipAddressPtr, uint16_t* portPtr ){
+int UDPPort::recvfrom(int sockfd, uint8_t* buf, uint16_t len, uint8_t flags, uint32_t* ipAddressPtr,
+		uint16_t* portPtr) {
 	sockaddr_in sender;
 	socklen_t addrlen = sizeof(sender);
 	memset(&sender, 0, addrlen);
 
-	int status = ::recvfrom( sockfd, buf, len, flags, (sockaddr*)&sender, &addrlen );
+	int status = ::recvfrom(sockfd, buf, len, flags, (sockaddr*) &sender, &addrlen);
+	D_NWSTACK("<<<<<<<< UDPPort::recvfrom %s:%d length = %d\n", inet_ntoa(sender.sin_addr),
+			htons((uint16_t )sender.sin_port), status);
+	int i;
+	for (i = 0; i < status; i++) {
+		D_NWSTACK("%d ", buf[i]);
+	}
+	D_NWSTACK("\n");
 
-	if ( status < 0 && errno != EAGAIN )	{
+	if (status < 0 && errno != EAGAIN) {
 		D_NWSTACK("errno == %d in UDPPort::recvfrom\n", errno);
 		return -1;
 	}
-	*ipAddressPtr = (uint32_t)sender.sin_addr.s_addr;
-	*portPtr = (uint16_t)sender.sin_port;
-	D_NWSTACK("recved from %s:%d length = %d\n",inet_ntoa(sender.sin_addr),htons(*portPtr),status);
+	*ipAddressPtr = (uint32_t) sender.sin_addr.s_addr;
+	*portPtr = (uint16_t) sender.sin_port;
 	return status;
 }
 
@@ -325,7 +368,9 @@ bool NWAddress64::operator==(NWAddress64& addr){
  =========================================*/
 NWResponse::NWResponse(){
     _addr16 = 0;
-    memset( _frameDataPtr, 0, MQTTSN_MAX_FRAME_SIZE);
+	_len = 0;
+	_type = 0;
+    memset(_frameDataPtr, 0, MQTTSN_MAX_FRAME_SIZE);
 }
 
 uint8_t  NWResponse::getFrameLength(){

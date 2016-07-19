@@ -6,8 +6,8 @@
  *           Copyright (c) 2014, tomoaki@tomy-tech.com
  *                    All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice,
  *    this list of conditions and the following disclaimer.
@@ -16,14 +16,15 @@
  *    this list of conditions and the following disclaimer in the documentation
  *   and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
- * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
- * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  *
@@ -57,21 +58,24 @@ public:
 	TLSStack(bool secure);
 	virtual ~TLSStack();
 
-	bool connect( const char* host, const char* service );
-	void disconnect();
-	int send( const uint8_t* buf, uint16_t length );
-	int  recv ( uint8_t* buf, uint16_t len );
+	void init(bool secure);
+	bool connect(const char *host, const char *service);
+	void disconnect(void);
+	int send(const uint8_t *buf, uint16_t length);
+	int  recv(uint8_t *buf, uint16_t len);
 
-	bool isValid();
-	bool isSecure();
-	int  getSock();
-	SSL* getSSL();
+	bool isValid(void);
+	bool isSecure(void);
+	int  getSock(void);
+	SSL *getSSL();
 private:
-	static SSL_CTX* _ctx;
-	static int  _numOfInstance;
-	static SSL_SESSION* _session;
+	static SSL_CTX *_ctx;
 
-	SSL*     _ssl;
+	static int  _numOfInstance;
+
+	static SSL_SESSION *_session;
+
+	SSL *_ssl;
 	bool   _secureFlg;
 	bool   _disconReq;
 	Mutex _mutex;

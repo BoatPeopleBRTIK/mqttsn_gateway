@@ -49,34 +49,12 @@ SSL_SESSION* TLSStack::_session = 0;
 /*========================================
        Class TLSStack
  =======================================*/
-TLSStack::TLSStack(){
-    TLSStack(true);
+TLSStack::TLSStack():TCPStack(){
+	init(true);
 }
 
-TLSStack::TLSStack(bool secure):TCPStack(){
-	char error[256];
-	if(secure){
-	    _numOfInstance++;
-		if(_ctx == 0){
-			SSL_load_error_strings();
-			SSL_library_init();
-			_ctx = SSL_CTX_new(TLSv1_2_client_method());
-			if(_ctx == 0){
-				ERR_error_string_n(ERR_get_error(), error, sizeof(error));
-				LOGWRITE("SSL_CTX_new() %s\n",error);
-				THROW_EXCEPTION(ExFatal, ERRNO_SYS_01, "can't create SSL context.");
-			}
-			if(!SSL_CTX_load_verify_locations(_ctx, 0,TLS_CA_DIR)){
-				ERR_error_string_n(ERR_get_error(), error, sizeof(error));
-				LOGWRITE("SSL_CTX_load_verify_locations() %s\n",error);
-				THROW_EXCEPTION(ExFatal, ERRNO_SYS_01, "can't load CA_LIST.");
-			}
-		}
-	}
-    _ssl = 0;
-    _disconReq = false;
-    _secureFlg = secure;
-    _busy = false;
+TLSStack::TLSStack(bool secure):TCPStack() {
+	init(secure);
 }
 
 TLSStack::~TLSStack(){
@@ -95,6 +73,37 @@ TLSStack::~TLSStack(){
     	_ctx = 0;
         ERR_free_strings();
     }
+}
+
+void TLSStack::init(bool secure) {
+	char error[256];
+	memset(error, 0, 256);
+
+	_numOfInstance = 0;
+	if (secure) {
+		_numOfInstance++;
+		if (_ctx == 0) {
+			SSL_load_error_strings();
+			SSL_library_init();
+			_ctx = SSL_CTX_new(TLSv1_2_client_method());
+			if (_ctx == 0) {
+				ERR_error_string_n(ERR_get_error(), error, sizeof(error));
+				LOGWRITE("SSL_CTX_new() %s\n", error);
+				THROW_EXCEPTION(ExFatal, ERRNO_SYS_01,
+						"can't create SSL context.");
+			}
+			if (!SSL_CTX_load_verify_locations(_ctx, 0, TLS_CA_DIR)) {
+				ERR_error_string_n(ERR_get_error(), error, sizeof(error));
+				LOGWRITE("SSL_CTX_load_verify_locations() %s\n", error);
+				THROW_EXCEPTION(ExFatal, ERRNO_SYS_01, "can't load CA_LIST.");
+			}
+		}
+	}
+	_session = NULL;
+	_ssl = 0;
+	_disconReq = false;
+	_secureFlg = secure;
+	_busy = false;
 }
 
 bool TLSStack::connect ( const char* host, const char* service ){

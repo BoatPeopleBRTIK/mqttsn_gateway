@@ -47,6 +47,7 @@ extern char* currentDateTime();
 
 
 BrokerRecvTask::BrokerRecvTask(GatewayResourcesProvider* res){
+	memset(_printBuf, 0, SOCKET_MAXBUFFER_LENGTH * 5);
 	_res = res;
 	_res->attach(this);
 }
@@ -127,21 +128,25 @@ void BrokerRecvTask::recvAndFireEvent(ClientNode* clnode){
 	int recvLength = 0;
 	uint8_t* packet = buffer;
 
-	recvLength = clnode->getStack()->recv(packet,SOCKET_MAXBUFFER_LENGTH);
-
+	recvLength = clnode->getStack()->recv(packet, SOCKET_MAXBUFFER_LENGTH);
 	if (recvLength == -1){
 		LOGWRITE(" Client : %s Error: BrokerRecvTask can't Receive data from Broker\n", clnode->getNodeId()->c_str());
 		clnode->disconnected();
 	}
 
 	while(recvLength > 0){
+		D_CLIENT_INFO("BrokerRecvTask node_id =  %s\n", clnode->getNodeId()->c_str());
+		D_NWSTACK("<<<<<<<< receive from broker length %d\n", recvLength);
+		int i;
+		for(i = 0; i < recvLength; i++) {
+			D_NWSTACK("%d ", packet[i]);
+		}
+		D_NWSTACK("\n");
 
 		if((*packet & 0xf0) == MQTT_TYPE_PUBACK){
 			MQTTPubAck* puback = new MQTTPubAck();
 			puback->deserialize(packet);
 			puback->serialize(sbuff);
-			LOGWRITE(BLUE_FORMAT1, currentDateTime(), "PUBACK", LEFTARROW, BROKER, msgPrint(sbuff, puback));
-
 			clnode->setBrokerRecvMessage(puback);
 		}else if((*packet & 0xf0) == MQTT_TYPE_PUBREC){
 			MQTTPubRec* pubRec = new MQTTPubRec();
@@ -208,7 +213,7 @@ void BrokerRecvTask::recvAndFireEvent(ClientNode* clnode){
 			clnode->setBrokerRecvMessage(connack);
 
 		}else{
-			LOGWRITE("%s UNKOWN_TYPE  packetLength=%d\n",currentDateTime(), recvLength);
+			D_NWSTACK("!!!!!!!!!!!!!!!!!!!!!!!!!! %s UNKOWN_TYPE  packetLength=%d\n",currentDateTime(), recvLength);
 			return;
 		}
 

@@ -53,6 +53,8 @@ TCPStack::TCPStack(){
     _addrinfo = 0;
     _disconReq = false;
     _sockfd = -1;
+	_addrinfo = NULL;
+	memset(&_sem, 0, sizeof(Semaphore));
 }
 
 TCPStack::~TCPStack(){
@@ -104,6 +106,7 @@ bool TCPStack::bind ( const char* service ){
 
 	if (_addrinfo){
 		freeaddrinfo(_addrinfo);
+		_addrinfo = NULL;
 	}
 	int err = getaddrinfo(0, service, &hints, &_addrinfo);
     if (err) {
@@ -168,6 +171,7 @@ bool TCPStack::connect ( const char* host, const char* service ){
 	hints.ai_socktype = SOCK_STREAM;
 	if (_addrinfo){
 		freeaddrinfo(_addrinfo);
+		_addrinfo = NULL;
 	}
 
 	int err = getaddrinfo(host, service, &hints, &_addrinfo);

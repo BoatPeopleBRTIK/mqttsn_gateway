@@ -16,15 +16,15 @@ $(SUBDIR)/TLSStack.cpp \
 $(SUBDIR)/Topics.cpp \
 $(SUBDIR)/UDPStack.cpp \
 $(SUBDIR)/XXXXXStack.cpp \
-$(SUBDIR)/ZBStack.cpp 
+$(SUBDIR)/ZBStack.cpp
 
 CXX := g++
-CPPFLAGS += 
+CPPFLAGS +=
 DEFS :=
-LDFLAGS += 
+LDFLAGS +=
 LIBS +=
-#LDADD := -lpthread -lrt -lssl -lcrypto
-LDADD := -lpthread -lrt -lwiringPi -lssl -lcrypto
+LDADD := -lpthread -lrt -lssl -lcrypto
+#LDADD := -lpthread -lrt -lwiringPi -lssl -lcrypto
 
 CXXFLAGS := -Wall -O3
 

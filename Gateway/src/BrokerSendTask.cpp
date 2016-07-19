@@ -47,8 +47,12 @@
 
 extern char* currentDateTime();
 
-
-BrokerSendTask::BrokerSendTask(GatewayResourcesProvider* res){
+BrokerSendTask::BrokerSendTask(GatewayResourcesProvider* res) {
+	_host = NULL;
+	_service = NULL;
+	_light = NULL;
+	memset(_printBuf, 0, SOCKET_MAXBUFFER_LENGTH * 5);
+	memset(_buffer, 0, SOCKET_MAXBUFFER_LENGTH);
 	_res = res;
 	_res->attach(this);
 }
@@ -68,13 +72,13 @@ void BrokerSendTask::run(){
 	ClientNode* clnode = 0;
 	char param[TOMYFRAME_PARAM_MAX];
 
-		if(_res->getParam("BrokerName",param) == 0){
-			_host = strdup(param);
-		}
-		if(_res->getParam("BrokerPortNo",param) == 0){
-			_service =strdup( param);
-		}
-		_light = _res->getLightIndicator();
+	if(_res->getParam("BrokerName",param) == 0){
+		_host = strdup(param);
+	}
+	if(_res->getParam("BrokerPortNo",param) == 0){
+		_service =strdup( param);
+	}
+	_light = _res->getLightIndicator();
 
 
 	while(true){
@@ -82,11 +86,20 @@ void BrokerSendTask::run(){
 		uint16_t length = 0;
 		memset(_buffer, 0, SOCKET_MAXBUFFER_LENGTH);
 
-		ev = _res->getBrokerSendQue()->wait();
+		ev = _res->getBrokerSendQue()->pop();
+		if(!ev) {
+			_res->getBrokerSendQue()->wait();
+			continue;
+		}
 
 		clnode = ev->getClientNode();
+		if(!clnode) {
+			goto runerror;
+		}
 		srcMsg = clnode->getBrokerSendMessage();
-
+		if(!srcMsg) {
+			goto runerror;
+		}
 		if(srcMsg->getType() == MQTT_TYPE_PUBLISH){
 			MQTTPublish* msg = static_cast<MQTTPublish*>(srcMsg);
 			length = msg->serialize(_buffer);
@@ -156,12 +169,20 @@ void BrokerSendTask::run(){
 			clnode->getStack()->disconnect();
 		}
 
+runerror:
 		delete ev;
 	}
 }
 
 
 int BrokerSendTask::send(ClientNode* clnode, int length){
+	D_CLIENT_INFO("BrokerSendTask node_id =  %s\n", clnode->getNodeId()->c_str());
+	D_NWSTACK(">>>>>>>> BrokerSendTask::send length %d\n", length);
+	int i;
+	for(i = 0; i < length; i++) {
+		D_NWSTACK("%d ", _buffer[i]);
+	}
+	D_NWSTACK("\n");
 	int rc = 0;
 
 	if(length <= 0){
@@ -170,8 +191,10 @@ int BrokerSendTask::send(ClientNode* clnode, int length){
 
 	if( clnode->getStack()->isValid()){
 		rc = clnode->getStack()->send(_buffer, length);
+		D_NWSTACK("BrokerSendTask::send %d\n", rc);
 		if(rc == -1){
 			LOGWRITE("\n%s   \x1b[0m\x1b[31merror:\x1b[0m\x1b[37m Can't Xmit to the Broker. errno=%d\n", currentDateTime(), errno);
+			D_NWSTACK("isValid rc %d %s:%s\n", rc, _host, _service);
 			clnode->getStack()->disconnect();
 			clnode->disconnected();
 			return -1;
@@ -179,17 +202,20 @@ int BrokerSendTask::send(ClientNode* clnode, int length){
 			_light->greenLight(true);
 		}
 	}else{
-		if(clnode->getStack()->connect(_host, _service)){
+		if (clnode->getStack()->connect(_host, _service)) {
 			rc = clnode->getStack()->send(_buffer, length);
-			if(rc == -1){
-				LOGWRITE("\n%s   \x1b[0m\x1b[31merror:\x1b[0m\x1b[37m Can't Xmit to the Broker. errno=%d\n", currentDateTime(), errno);
+			D_NWSTACK("BrokerSendTask::send rc %d %s:%s\n", rc, _host, _service);
+			if (rc == -1) {
+				LOGWRITE("\n%s   \x1b[0m\x1b[31merror:\x1b[0m\x1b[37m Can't Xmit to the Broker. errno=%d\n",
+						currentDateTime(), errno);
 				clnode->getStack()->disconnect();
 				clnode->disconnected();
 				return -1;
-			}else{
+			} else {
 				_light->greenLight(true);
 			}
 		}else{
+			D_NWSTACK("connect error %s:%s\n", _host, _service);
 			LOGWRITE("\n%s   \x1b[0m\x1b[31merror:\x1b[0m\x1b[37m Can't connect to the Broker.\n", currentDateTime());
 			clnode->getStack()->disconnect();
 			clnode->disconnected();

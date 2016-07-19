@@ -52,7 +52,9 @@ extern char* currentDateTime();
 extern void setUint32(uint8_t* pos, uint32_t val);
 
 extern "C"{
+#ifdef RASPBERRY_LIGHT_INDICATOR
 	int wiringPiSetup(void);
+#endif
 	void pinMode(int gpioNo, int mode);
 	void digitalWrite(int gpioNo, int val);
 }
@@ -102,33 +104,12 @@ LightIndicator* GatewayResourcesProvider::getLightIndicator(){
 /*=====================================
         Class Client
  =====================================*/
-ClientNode::ClientNode(){
-	ClientNode(false);
+ClientNode::ClientNode() {
+	init(false);
 }
 
-ClientNode::ClientNode(bool secure){
-	_msgId = 0;
-	_snMsgId = 0;
-	_status = Cstat_Disconnected;
-	_keepAliveMsec = 0;
-	_topics = new Topics();
-
-	_address64 = NWAddress64();
-	_nodeId = "";
-	_address16 = 0;
-
-	_mqttConnect = 0;
-
-	_waitedPubAck = 0;
-	_waitedSubAck = 0;
-	if(secure){
-		_stack = new TLSStack(true);
-	}else{
-		_stack = new TLSStack(false);
-	}
-	_connAckSaveFlg = false;
-	_connAck = 0;
-	_waitWillMsgFlg = false;
+ClientNode::ClientNode(bool secure) {
+	init(secure);
 }
 
 ClientNode::~ClientNode(){
@@ -145,6 +126,31 @@ ClientNode::~ClientNode(){
 	if(_stack){
 		delete _stack;
 	}
+}
+
+void ClientNode::init(bool secure) {
+	_msgId = 0;
+	_snMsgId = 0;
+	_status = Cstat_Disconnected;
+	_keepAliveMsec = 0;
+	_topics = new Topics();
+
+	_address64 = NWAddress64();
+	_nodeId = "";
+	_address16 = 0;
+
+	_mqttConnect = 0;
+
+	_waitedPubAck = 0;
+	_waitedSubAck = 0;
+	if (secure) {
+		_stack = new TLSStack(true);
+	} else {
+		_stack = new TLSStack(false);
+	}
+	_connAckSaveFlg = false;
+	_connAck = 0;
+	_waitWillMsgFlg = false;
 }
 
 void ClientNode::setWaitedPubAck(MQTTSnPubAck* msg){
@@ -219,7 +225,6 @@ void ClientNode::setBrokerRecvMessage(MQTTMessage* msg){
 
 void ClientNode::setClientSendMessage(MQTTSnMessage* msg){
 	_clientSendMessageQue.push(msg);
-
 }
 
 void ClientNode::setClientRecvMessage(MQTTSnMessage* msg){
@@ -325,7 +330,7 @@ void ClientNode::connackSended(int rc){
 }
 
 void ClientNode::updateStatus(MQTTSnMessage* msg){
-	if(((_status == Cstat_Disconnected) || (_status == Cstat_Lost)) && 
+	if(((_status == Cstat_Disconnected) || (_status == Cstat_Lost)) &&
          msg->getType() == MQTTSN_TYPE_CONNECT){
 		setKeepAlive(msg);
 	}else if(_status == Cstat_Active){
@@ -353,7 +358,7 @@ void ClientNode::updateStatus(MQTTSnMessage* msg){
 		default:
 			break;
 		}
-	
+
 	}else if(_status == Cstat_Asleep){
 		if(msg->getType() == MQTTSN_TYPE_CONNECT){
 			setKeepAlive(msg);
@@ -465,8 +470,8 @@ void ClientNode::setClientAddress16(uint16_t addr){
     _address16 = addr;
 }
 
-void ClientNode::setNodeId(string* id){
-	_nodeId.append(*id);
+void ClientNode::setNodeId(string* id) {
+	_nodeId = *id;
 }
 
 void ClientNode::setTopics(Topics* topics){
@@ -530,30 +535,32 @@ void ClientList::authorize(const char* fname, bool secure){
 	}
 }
 
-ClientNode* ClientList::createNode(bool secure, NWAddress64* addr64, uint16_t addr16, string* nodeId){
-	if(_clientCnt < MAX_CLIENT_NODES && !_authorize){
+ClientNode* ClientList::createNode(bool secure, NWAddress64* addr64, uint16_t addr16, string* nodeId) {
+	ClientNode* node;
+
+	node = getClient(addr64, *nodeId);
+	if (node) {
+		return node;
+	}
+
+	if (_clientCnt >= MAX_CLIENT_NODES) {
+		printf("!!!!!! Client count is %d but the MAX is %d when createNode !!!!!!\n", _clientCnt, MAX_CLIENT_NODES);
+	}
+
+	if (_clientCnt < MAX_CLIENT_NODES && !_authorize) {
 		_mutex.lock();
-		vector<ClientNode*>::iterator client = _clientVector->begin();
-		while( client != _clientVector->end()){
-			if(((*client)->getAddress64Ptr() == addr64) && ((*client)->getAddress16() == addr16)){
-				return 0;
-			}else{
-				++client;
-			}
-		}
-		ClientNode* node = new ClientNode(secure);
+		node = new ClientNode(secure);
 		node->setClientAddress64(addr64);
 		node->setClientAddress16(addr16);
-		if (nodeId){
+		if (nodeId) {
 			node->setNodeId(nodeId);
 		}
 		_clientVector->push_back(node);
 		_clientCnt++;
+		D_CLIENT_INFO("New client created node_id = %s count ++++++ to %d\n", nodeId->c_str(), _clientCnt);
 		_mutex.unlock();
-		return node;
-	}else{
-		return getClient(addr64, addr16);
 	}
+	return node;
 }
 
 void ClientList::erase(ClientNode* clnode){
@@ -562,16 +569,17 @@ void ClientList::erase(ClientNode* clnode){
 	_mutex.lock();
 	vector<ClientNode*>::iterator client = _clientVector->begin();
 
-	while( (client != _clientVector->end()) && *client){
+	while ((client != _clientVector->end()) && *client) {
 
-		if((*client) == clnode){
-			delete(*client);
+		if ((*client) == clnode) {
+			delete (*client);
 			_clientVector->erase(client);
 			_clientCnt--;
-			for(; pos < _clientCnt; pos++){
+			D_CLIENT_INFO("Client erase node_id = %s Count ------ to %d\n", clnode->getNodeId()->c_str(), _clientCnt);
+			for (; pos < _clientCnt; pos++) {
 				_clientVector[pos] = _clientVector[pos + 1];
 			}
-		}else{
+		} else {
 			++client;
 			++pos;
 		}
@@ -579,17 +587,31 @@ void ClientList::erase(ClientNode* clnode){
 	_mutex.unlock();
 }
 
-ClientNode* ClientList::getClient(NWAddress64* addr64, uint16_t addr16){
+ClientNode* ClientList::getClient(NWAddress64* addr64, uint16_t addr16) {
 	_mutex.lock();
 	vector<ClientNode*>::iterator client = _clientVector->begin();
-	while( (client != _clientVector->end()) && *client){
-			if(*((*client)->getAddress64Ptr()) == *addr64 &&
-					(*client)->getAddress16() == addr16){
-				_mutex.unlock();
-				return *client;
-			}else{
-				++client;
-			}
+	while ((client != _clientVector->end()) && *client) {
+		if (*((*client)->getAddress64Ptr()) == *addr64 && (*client)->getAddress16() == addr16) {
+			_mutex.unlock();
+			return *client;
+		} else {
+			++client;
+		}
+	}
+	_mutex.unlock();
+	return 0;
+}
+
+ClientNode* ClientList::getClient(NWAddress64* addr64, string nodeid) {
+	_mutex.lock();
+	vector<ClientNode*>::iterator client = _clientVector->begin();
+	while ((client != _clientVector->end()) && *client) {
+		if (*((*client)->getAddress64Ptr()) == *addr64 && *((*client)->getNodeId()) == nodeid) {
+			_mutex.unlock();
+			return *client;
+		} else {
+			++client;
+		}
 	}
 	_mutex.unlock();
 	return 0;

@@ -46,6 +46,7 @@
 
 
 ClientSendTask::ClientSendTask(GatewayResourcesProvider* res){
+	_network = NULL;
 	_res = res;
 	_res->attach(this);
 }
@@ -78,6 +79,20 @@ void ClientSendTask::run(){
 #endif
 
 #ifdef NETWORK_UDP
+	UdpConfig config;
+	char param[TOMYFRAME_PARAM_MAX];
+
+	if(_res->getParam("BroadcastIP", param) == 0){
+		config.ipAddress = strdup(param);
+	}
+
+	if(_res->getParam("BrokerPortNo",param) == 0){
+		config.gPortNo = atoi(param);
+	}
+
+	if(_res->getParam("GatewayPortNo",param) == 0){
+		config.uPortNo = atoi(param);
+	}
 	_network = _res->getNetwork();
 #endif
 
@@ -86,24 +101,37 @@ void ClientSendTask::run(){
 #endif
 
 	if(_network->initialize(config) < 0){
-		THROW_EXCEPTION(ExFatal, ERRNO_APL_01, "can't open the client port.");  // ABORT
+		THROW_EXCEPTION(ExFatal, ERRNO_APL_01, "ClientSendTask initialize exception.");  // ABORT
 	}
 
 	while(true){
-		Event* ev = _res->getClientSendQue()->wait();
+		Event* ev = _res->getClientSendQue()->pop();
+		if (!ev) {
+			_res->getClientSendQue()->wait();
+			continue;
+		}
 
 		if(ev->getEventType() == EtClientSend){
 			MQTTSnMessage msg = MQTTSnMessage();
 			ClientNode* clnode = ev->getClientNode();
-			msg.absorb( clnode->getClientSendMessage() );
+			if (!clnode) {
+				goto error;
+			}
+			MQTTSnMessage* src = clnode->getClientSendMessage();
+			if (!src) {
+				goto error;
+			}
+			msg.absorb(src);
 
-			_network->unicast(clnode->getAddress64Ptr(), clnode->getAddress16(),
-					msg.getMessagePtr(), msg.getMessageLength());
+			D_CLIENT_INFO("ClientSendTask node_id = %s\n", clnode->getNodeId()->c_str());
+			_network->unicast(clnode->getAddress64Ptr(), clnode->getAddress16(), msg.getMessagePtr(),
+					msg.getMessageLength());
 		}else if(ev->getEventType() == EtBroadcast){
 			MQTTSnMessage msg = MQTTSnMessage();
 			msg.absorb( ev->getMqttSnMessage() );
 			_network->broadcast(msg.getMessagePtr(), msg.getMessageLength());
 		}
+error:
 		delete ev;
 	}
 }
