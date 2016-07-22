@@ -1,7 +1,7 @@
 Name: TomyGateway
 Summary: MQTT-SN gateway application
 Version: 1.1.1
-Release: 0
+Release: 1%{?dist}
 Group: Applications/Communications
 License: BSD
 Source: %{name}-%{version}.tar.gz
