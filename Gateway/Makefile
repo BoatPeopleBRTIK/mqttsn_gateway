@@ -18,7 +18,7 @@ $(SUBDIR)/UDPStack.cpp \
 $(SUBDIR)/XXXXXStack.cpp \
 $(SUBDIR)/ZBStack.cpp
 
-CXX := g++
+CXX ?= g++
 CPPFLAGS +=
 DEFS :=
 LDFLAGS +=
